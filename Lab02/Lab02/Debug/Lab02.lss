@@ -1,10 +1,10 @@
 
-AVRASM ver. 2.2.8  C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontroladores\IE2023-Lab02\Lab02\Lab02\main.asm Sat Feb 15 19:01:51 2025
+AVRASM ver. 2.2.8  C:\Users\ang50\OneDrive\Documents\Git\UVG\Programación de microcontroladores\Laboratorios\IE2023-Lab02\Lab02\Lab02\main.asm Sun Feb 16 00:35:54 2025
 
 [builtin](2): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\m328Pdef.inc'
-C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontroladores\IE2023-Lab02\Lab02\Lab02\main.asm(8): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\M328PDEF.inc'
+C:\Users\ang50\OneDrive\Documents\Git\UVG\Programación de microcontroladores\Laboratorios\IE2023-Lab02\Lab02\Lab02\main.asm(8): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\M328PDEF.inc'
 [builtin](2): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\m328Pdef.inc'
-C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontroladores\IE2023-Lab02\Lab02\Lab02\main.asm(8): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\M328PDEF.inc'
+C:\Users\ang50\OneDrive\Documents\Git\UVG\Programación de microcontroladores\Laboratorios\IE2023-Lab02\Lab02\Lab02\main.asm(8): Including file 'C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\M328PDEF.inc'
                                  
                                  ;
                                  
@@ -1038,12 +1038,9 @@ C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontrol
                                  
                                  ; ***** END OF FILE ******************************************************
                                  .cseg
-                                 .org 0x0000
-000000 c027                      	RJMP	RESET
                                  
+                                 ;Establecer dirección en program mem. LUEGO de los vectores de interrupción
                                  .org 0x0020
-                                 
-                                 ;Establecer dirección en program mem.
                                  DISP7SEG:	
 000020 063f
 000021 4f5b
@@ -1055,12 +1052,14 @@ C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontrol
 000027 7179                      	.DB	0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71
                                  
                                  ;Definición de registros importantes
-                                 .def	BIN0		= R23
-                                 .def	BIN0temp	= R22
+                                 .def	BINDISP			= R23
+                                 .def	BINDISPtemp		= R22
+                                 .def	COUNTMILLIS		= R24
+                                 .def	BINSECS			= R20
+                                 .def	BINSECStemp		= R21
                                  
                                  SETUP:
                                  	;Establecemos el ZPointer en la dirección de DISP7SEG
-                                 	RESET:
 000028 e4e0                      	LDI		ZL, LOW(DISP7SEG << 1)
 000029 e0f0                      	LDI		ZH, HIGH(DISP7SEG << 1)
                                  	
@@ -1070,140 +1069,201 @@ C:\Users\ang50.DESKTOP-DU024GS\Documents\GitHub\UVG\Programación de microcontrol
 00002c e008                      	LDI		R16, HIGH(RAMEND)
 00002d bf0e                      	OUT		SPH, R16
                                  
+                                 	;Configurar Prescaler "Global" de 16 (DATASHEET P.45)	|	16MHz a 1MHz
+00002e e800                      	LDI		R16, (1 << CLKPCE)
+00002f 9300 0061                 	STS		CLKPR, R16
+000031 e004                      	LDI		R16, (1 << CLKPS2)
+000032 9300 0061                 	STS		CLKPR, R16
+                                 
                                  	;Deshabilitar serial (Importante; se utilizará PD para el display)
-00002e e000                      	LDI		R16, 0x00
-00002f 9300 00c1                 	STS		UCSR0B, R16
+000034 e000                      	LDI		R16, 0x00
+000035 9300 00c1                 	STS		UCSR0B, R16
                                  
                                  	;Configurar I/O PORTS (DDRx, PORTx)
-                                 	;PORTD: BIN0 Out (PD0,1,2,3,4,5,6)	|	PORTD: 0XXXXXXX
-000031 ef0f                      	LDI		R16, 0b11111111
-000032 b90a                      	OUT		DDRD, R16
-000033 e000                      	LDI		R16, 0b00000000
-000034 b90b                      	OUT		PORTD, R16
-                                 	;PORTC: BIN0 In (PC0,1)				|	PORTC: 00000011
-000035 e000                      	LDI		R16, 0x00
-000036 b907                      	OUT		DDRC, R16
-000037 e003                      	LDI		R16, 0b00000011
-000038 b908                      	OUT		PORTC, R16
+                                 	;PORTB: BINSECS & STATE Out (PB0,1,2,3,4)	|	PORTB: 000XXXXX
+000037 e10f                      	LDI		R16, 0b00011111
+000038 b904                      	OUT		DDRB, R16
+000039 e000                      	LDI		R16, 0b00000000
+00003a b905                      	OUT		PORTB, R16
+                                 	;PORTD: BINDISP Out (PD0,1,2,3,4,5,6)		|	PORTD: 0XXXXXXX
+00003b ef0f                      	LDI		R16, 0b11111111
+00003c b90a                      	OUT		DDRD, R16
+00003d e000                      	LDI		R16, 0b00000000
+00003e b90b                      	OUT		PORTD, R16
+                                 	;PORTC: BINDISP In (PC0,1)					|	PORTC: 00000011
+00003f e000                      	LDI		R16, 0x00	
+000040 b907                      	OUT		DDRC, R16
+000041 e003                      	LDI		R16, 0b00000011
+000042 b908                      	OUT		PORTC, R16
                                  
                                  	;Valores iniciales de registros importantes
-000039 e070                      	LDI		BIN0, 0x00
-00003a 9164                      	LPM		BIN0temp, Z
-00003b b96b                      	OUT		PORTD, BIN0temp
+000043 e080                      	LDI		COUNTMILLIS, 0x00
+000044 e040                      	LDI		BINSECS, 0x00
+000045 e070                      	LDI		BINDISP, 0x00
+000046 9164                      	LPM		BINDISPtemp, Z
+000047 b96b                      	OUT		PORTD, BINDISPtemp
+                                 
+                                 	;Config. de TIMER0 en modo NORMAL
+                                 	;Sin necesidad de cambiar TCCR0A
+000048 e005                      	LDI		R16, (1 << CS02) | (1 << CS00)		;Prescaler 1024
+000049 bd05                      	OUT		TCCR0B, R16
                                  
                                  
                                  
-                                 MAIN:
-                                 	;Revisando si se quiere modificar BIN0
-00003c 9b31                      	SBIS	PINC, PINC1			;Skip-next-line si el BIN0-UP-Button NO es presionado (Logic 1)
-00003d 940e 0044                 	CALL	BIN0_UP_SEG			;Si BIN0-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-00003f 9b30                      	SBIS	PINC, PINC0			;Skip-next-line si el BIN0-DWN-Button NO es presionado (Logic 1)
-000040 940e 0060                 	CALL	BIN0_DWN_SEG		;Si BIN0-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-000042 940c 003c                 	JMP		MAIN				;Ciclo infinito
+                                 MAIN_LOOP:
+                                 	;Si BINDISP = 0: No aumentar BINSECS y apagar LED
+00004a 3070                      	CPI		BINDISP, 0
+00004b b70f                      	IN		R16, SREG		
+00004c fd01                      	SBRC	R16, 1
+00004d 940c 0067                 	JMP		BINSECS_AND_LED_OFF
+                                 	;Cambio de valor de BINSECS
+                                 	;Verificar si han transcurrido 100ms y aumentar COUNTMILLIS
+                                 	;Si TCNT0 = 0: Han transcurrido 100ms
+                                 	;Si COUNTMILLIS = 10: Ha transcurrido 1s
+00004f b506                      	IN		R16, TCNT0
+000050 3000                      	CPI		R16, 0
+000051 b71f                      	IN		R17, SREG
+000052 fd11                      	SBRC	R17, 1
+000053 940e 006c                 	CALL	TIM0_SET_AND_COUNTMILLIS_UP
+                                 	;Si COUNTMILLIS = 10: Aumentar BINSECS y reiniciar COUNTMILLIS
+000055 308a                      	CPI		COUNTMILLIS, 10
+000056 b70f                      	IN		R16, SREG		
+000057 fd01                      	SBRC	R16, 1
+000058 940e 0070                 	CALL	BINSECS_UP_AND_COUNTMILLIS_CLR
+                                 	;Revisando si BINSECS = BINDISP
+00005a 1747                      	CP		BINSECS, BINDISP
+00005b b70f                      	IN		R16, SREG		
+00005c fd01                      	SBRC	R16, 1
+00005d 940e 007a                 	CALL	STATE_CHANGE_AND_BINSECS_CLEAR
+                                 	BUTTONS:
+                                 	;Revisando si se quiere modificar BINDISP
+00005f 9b31                      	SBIS	PINC, PINC1			;Skip-next-line si el BINDISP-UP-Button NO es presionado (Logic 1)
+000060 940e 0086                 	CALL	BINDISP_UP_SEG		;Si BINDISP-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+000062 9b30                      	SBIS	PINC, PINC0			;Skip-next-line si el BINDISP-DWN-Button NO es presionado (Logic 1)
+000063 940e 009d                 	CALL	BINDISP_DWN_SEG		;Si BINDISP-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+000065 940c 004a                 	JMP		MAIN_LOOP			;Ciclo infinito
                                  
                                  
                                  
-                                 ;Sub-rutinas de BIN0
-                                 BIN0_UP_SEG:			;Rutina de seguridad de presionado de BIN0-UP-Button
-000044 940e 007d                 	CALL	DELAY		;Llamamos al Delay...
-                                 	;Si al regresar, BIN0-UP-Button SIGUE presionado (Logic 0), realizamos el aumento en BIN0
-                                 	;Si al regresar, BIN0-UP-Button NO SIGUE presionado (Logic 1), fue botonazo y regresamos a MAIN
-000046 9931                      	SBIC	PINC, PINC1		
-000047 9508                      	RET
-000048 940e 004d                 	CALL	BIN0_UP
-                                 	;Si luego de aumentar BIN0, BIN0-UP-Button SIGUE presionado, loopeamos hasta que se deje de presionar
-                                 	;Si luego de aumentar BIN0, BIN0-UP-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN
-                                 	BIN0_UP_LOOP:
-00004a 9b31                      		SBIS	PINC, PINC1
-00004b cffe                      		RJMP	BIN0_UP_LOOP
-00004c 9508                      	RET
-                                 BIN0_UP:				;Rutina de aumento de BIN0
-                                 	;Incrementamos BIN0
-                                 	;Si hay carry (4to bit encendido), limpiamos BIN0 (BIN0_CLR)
-                                 	;Si no hay carry, "arreglamos" BIN0temp con el valor de ZP para subir a PORTD (BIN0_DWN_7SEG)
-                                 	;Recordar que PORTD: 0XXXXXXX 
-00004d 9573                      	INC		BIN0
-00004e fd74                      	SBRC	BIN0, 4
-00004f 940c 0054                 	JMP		BIN0_CLR
-000051 940c 005b                 	JMP		BIN0_UP_7SEG
-                                 	RETURN_UP:
-000053 9508                      	RET
-                                 
-                                 	BIN0_CLR:
-                                 	;Limpiamos BIN0
-                                 	;Cargamos la primera localidad de DISP7SEG a ZPointer
-                                 	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-                                 	;Subimos BIN0temp a PD
-000054 2777                      	CLR		BIN0
-000055 e4e0                      	LDI		ZL, LOW(DISP7SEG << 1)
-000056 e0f0                      	LDI		ZH, HIGH(DISP7SEG << 1)
-000057 9164                      	LPM		BIN0temp, Z
-000058 b96b                      	OUT		PORTD, Bin0temp
-000059 940c 0053                 	JMP		RETURN_UP
-                                 	BIN0_UP_7SEG:
-                                 	;Aumentamos el valor de ZPointer para que apunte al valor deseado de DISP7SEG
-                                 	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-                                 	;Subimos BIN0temp a PD
-00005b 9631                      	ADIW	Z, 1
-00005c 9164                      	LPM		BIN0temp, Z
-00005d b96b                      	OUT		PORTD, Bin0temp
-00005e 940c 0053                 	JMP		RETURN_UP
-                                 
-                                 
-                                 
-                                 BIN0_DWN_SEG:			;Rutina de seguridad de presionado de BIN0-DWN-Button
-000060 940e 007d                 	CALL	DELAY		;Llamamos al Delay...
-                                 	;Si al regresar, BIN0-DWN-Button SIGUE presionado (Logic 0), realizamos el decremento en BIN0
-                                 	;Si al regresar, BIN0-DWN-Button NO SIGUE presionado (Logic 1), fue botonazo y regresamos a MAIN
-000062 9930                      	SBIC	PINC, PINC0		
-000063 9508                      	RET
-000064 940e 0069                 	CALL	BIN0_DWN
-                                 	;Si luego de decrementar BIN0, BIN0-DWN-Button SIGUE presionado, loopeamos hasta que se deje de presionar
-                                 	;Si luego de decrementar BIN0, BIN0-DWN-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN
-                                 	BIN0_DWN_LOOP:
-000066 9b30                      		SBIS	PINC, PINC0
-000067 cffe                      		RJMP	BIN0_DWN_LOOP
-000068 9508                      	RET
-                                 BIN0_DWN:				;Rutina de decremento de BIN0
-                                 	;Decrementamos BIN0
-                                 	;Si hay carry (7mo bit encendido), corregimos BIN0 (BIN0_SET)
-                                 	;Si no hay carry, "arreglamos" BIN0temp con el valor de ZP para subir a PORTD (BIN0_DWN_7SEG)
-                                 	;Recordar que PORTD: 0XXXXXXX 
-000069 957a                      	DEC		BIN0
-00006a fd77                      	SBRC	BIN0, 7
-00006b 940c 0070                 	JMP		BIN0_SET
-00006d 940c 0078                 	JMP		BIN0_DWN_7SEG
-                                 	RETURN_DWN:
+                                 ;Sub-rutina de TIMER0
+                                 BINSECS_AND_LED_OFF:
+000067 e040                      	LDI		BINSECS, 0
+000068 e050                      	LDI		BINSECStemp, 0
+000069 b955                      	OUT		PORTB, BINSECStemp
+00006a 940c 005f                 	JMP		BUTTONS
+                                 TIM0_SET_AND_COUNTMILLIS_UP:
+                                 	;Config. de TIMER0 en temporizador NORMAL (100ms)
+                                 	;Compare value: TCNT0 = 256-98 = 158
+00006c e90e                      	LDI		R16, 158
+00006d bd06                      	OUT		TCNT0, R16
+00006e 9583                      	INC		COUNTMILLIS
 00006f 9508                      	RET
+                                 BINSECS_UP_AND_COUNTMILLIS_CLR:
+                                 	;Si COUNTMILLIS = 10: Ha transcurrido 1s
+                                 	;Incrementamos BINSECS
+                                 	;"Ajustamos" BINSECS en BINSECStemp para subir a PORTB
+000070 2788                      	CLR		COUNTMILLIS
+000071 9543                      	INC		BINSECS
+000072 fd44                      	SBRC	BINSECS, 4
+000073 2744                      	CLR		BINSECS
+000074 b105                      	IN		R16, PORTB
+000075 fb04                      	BST		R16, 4
+000076 2f54                      	MOV		BINSECStemp, BINSECS
+000077 f954                      	BLD		BINSECStemp, 4
+000078 b955                      	OUT		PORTB, BINSECStemp
+000079 9508                      	RET
+                                 STATE_CHANGE_AND_BINSECS_CLEAR:
+00007a 2744                      	CLR		BINSECS
+00007b b105                      	IN		R16, PORTB
+00007c fb04                      	BST		R16, 4
+00007d 2f54                      	MOV		BINSECStemp, BINSECS
+00007e f954                      	BLD		BINSECStemp, 4
+00007f b955                      	OUT		PORTB, BINSECStemp
+000080 9a1c                      	SBI		PINB, PINB4
+000081 9508                      	RET
+                                 BINSECS_CLEAR_AND_LED_ON:
+000082 2744                      	CLR		BINSECS
+000083 e150                      	LDI		BINSECStemp, 0b00010000
+000084 b955                      	OUT		PORTB, BINSECStemp
+000085 9508                      	RET
                                  
-                                 	BIN0_SET:
-                                 	;Corregimos BIN0
+                                 
+                                 
+                                 ;Sub-rutinas de BINDISP
+                                 BINDISP_UP_SEG:			;Rutina de seguridad de presionado de BINDISP-UP-Button
+                                 	;Incrementamos BINDISP
+                                 	;Si hay carry (4to bit encendido), limpiamos BINDISP (BINDISP_CLR)
+                                 	;Si no hay carry, "arreglamos" BINDISPtemp con el valor de ZP para subir a PORTD (BINDISP_DWN_7SEG)
+                                 	;Recordar que PORTD: 0XXXXXXX 
+000086 9573                      	INC		BINDISP
+000087 fd74                      	SBRC	BINDISP, 4
+000088 940c 0091                 	JMP		BINDISP_CLR
+00008a 940c 0098                 	JMP		BINDISP_UP_7SEG
+                                 	;Si luego de aumentar BINDISP, BINDISP-UP-Button SIGUE presionado, loopeamos hasta que se deje de presionar
+                                 	;Si luego de aumentar BINDISP, BINDISP-UP-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN_LOOP
+                                 	BINDISP_UP_LOOP:
+00008c 940e 0082                 		CALL	BINSECS_CLEAR_AND_LED_ON
+00008e 9b31                      		SBIS	PINC, PINC1
+00008f cffc                      		RJMP	BINDISP_UP_LOOP
+000090 9508                      	RET
+                                 	BINDISP_CLR:
+                                 	;Limpiamos BINDISP
+                                 	;Cargamos la primera localidad de DISP7SEG a ZPointer
+                                 	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+                                 	;Subimos BINDISPtemp a PD
+000091 2777                      	CLR		BINDISP
+000092 e4e0                      	LDI		ZL, LOW(DISP7SEG << 1)
+000093 e0f0                      	LDI		ZH, HIGH(DISP7SEG << 1)
+000094 9164                      	LPM		BINDISPtemp, Z
+000095 b96b                      	OUT		PORTD, BINDISPtemp
+000096 940c 008c                 	JMP		BINDISP_UP_LOOP
+                                 	BINDISP_UP_7SEG:
+                                 	;Aumentamos el valor de ZPointer para que apunte al valor deseado de DISP7SEG
+                                 	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+                                 	;Subimos BINDISPtemp a PD
+000098 9631                      	ADIW	Z, 1
+000099 9164                      	LPM		BINDISPtemp, Z
+00009a b96b                      	OUT		PORTD, BINDISPtemp
+00009b 940c 008c                 	JMP		BINDISP_UP_LOOP
+                                 
+                                 BINDISP_DWN_SEG:			;Rutina de seguridad de presionado de BINDISP-DWN-Button
+                                 	;Decrementamos BINDISP
+                                 	;Si hay carry (7mo bit encendido), corregimos BINDISP (BINDISP_SET)
+                                 	;Si no hay carry, "arreglamos" BINDISPtemp con el valor de ZP para subir a PORTD (BINDISP_DWN_7SEG)
+                                 	;Recordar que PORTD: 0XXXXXXX 
+00009d 957a                      	DEC		BINDISP
+00009e fd77                      	SBRC	BINDISP, 7
+00009f 940c 00a8                 	JMP		BINDISP_SET
+0000a1 940c 00b0                 	JMP		BINDISP_DWN_7SEG
+                                 	;Si luego de decrementar BINDISP, BINDISP-DWN-Button SIGUE presionado, loopeamos hasta que se deje de presionar
+                                 	;Si luego de decrementar BINDISP, BINDISP-DWN-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN_LOOP
+                                 	BINDISP_DWN_LOOP:
+0000a3 940e 0082                 		CALL	BINSECS_CLEAR_AND_LED_ON
+0000a5 9b30                      		SBIS	PINC, PINC0
+0000a6 cffc                      		RJMP	BINDISP_DWN_LOOP
+0000a7 9508                      	RET
+                                 	BINDISP_SET:
+                                 	;Corregimos BINDISP
                                  	;Cargamos la última localidad de DISP7SEG a ZPointer
-                                 	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-                                 	;Subimos BIN0temp a PD
-000070 e07f                      	LDI		BIN0, 0x0F
-000071 e4e0                      	LDI		ZL, LOW(DISP7SEG << 1)
-000072 e0f0                      	LDI		ZH, HIGH(DISP7SEG << 1)
-000073 963f                      	ADIW	Z, 15
-000074 9164                      	LPM		BIN0temp, Z
-000075 b96b                      	OUT		PORTD, Bin0temp
-000076 940c 006f                 	JMP		RETURN_DWN
-                                 
-                                 	BIN0_DWN_7SEG:
+                                 	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+                                 	;Subimos BINDISPtemp a PD
+0000a8 e07f                      	LDI		BINDISP, 0x0F
+0000a9 e4e0                      	LDI		ZL, LOW(DISP7SEG << 1)
+0000aa e0f0                      	LDI		ZH, HIGH(DISP7SEG << 1)
+0000ab 963f                      	ADIW	Z, 15
+0000ac 9164                      	LPM		BINDISPtemp, Z
+0000ad b96b                      	OUT		PORTD, BINDISPtemp
+0000ae 940c 00a3                 	JMP		BINDISP_DWN_LOOP
+                                 	BINDISP_DWN_7SEG:
                                  	;Decrementamos el valor de ZPointer para que apunte al valor deseado de DISP7SEG
-                                 	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-                                 	;Subimos BIN0temp a PD
-000078 9731                      	SBIW	Z, 1
-000079 9164                      	LPM		BIN0temp, Z
-00007a b96b                      	OUT		PORTD, Bin0temp
-00007b 940c 006f                 	JMP		RETURN_DWN
+                                 	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+                                 	;Subimos BINDISPtemp a PD
+0000b0 9731                      	SBIW	Z, 1
+0000b1 9164                      	LPM		BINDISPtemp, Z
+0000b2 b96b                      	OUT		PORTD, BINDISPtemp
+0000b3 940c 00a3                 	JMP		BINDISP_DWN_LOOP
                                  
                                  
-                                 
-                                 ;Sub-rutinas de DELAY
-                                 DELAY:					
-00007d e020                      	LDI		R18, 0x00
-00007e 9508                      	RET
                                  
                                  
                                  
@@ -1226,37 +1286,37 @@ counted separately from r26..r31 here.
 "ATmega328P" register use summary:
 x  :   0 y  :   0 z  :   8 r0 :   0 r1 :   0 r2 :   0 r3 :   0 r4 :   0 
 r5 :   0 r6 :   0 r7 :   0 r8 :   0 r9 :   0 r10:   0 r11:   0 r12:   0 
-r13:   0 r14:   0 r15:   0 r16:  14 r17:   0 r18:   1 r19:   0 r20:   0 
-r21:   0 r22:  10 r23:   7 r24:   0 r25:   0 r26:   0 r27:   0 r28:   0 
+r13:   0 r14:   0 r15:   0 r16:  38 r17:   2 r18:   0 r19:   0 r20:  10 
+r21:  10 r22:  10 r23:   9 r24:   4 r25:   0 r26:   0 r27:   0 r28:   0 
 r29:   0 r30:   3 r31:   3 
-Registers used: 7 out of 35 (20.0%)
+Registers used: 10 out of 35 (28.6%)
 
 "ATmega328P" instruction use summary:
 .lds  :   0 .sts  :   0 adc   :   0 add   :   0 adiw  :   2 and   :   0 
-andi  :   0 asr   :   0 bclr  :   0 bld   :   0 brbc  :   0 brbs  :   0 
+andi  :   0 asr   :   0 bclr  :   0 bld   :   2 brbc  :   0 brbs  :   0 
 brcc  :   0 brcs  :   0 break :   0 breq  :   0 brge  :   0 brhc  :   0 
 brhs  :   0 brid  :   0 brie  :   0 brlo  :   0 brlt  :   0 brmi  :   0 
 brne  :   0 brpl  :   0 brsh  :   0 brtc  :   0 brts  :   0 brvc  :   0 
-brvs  :   0 bset  :   0 bst   :   0 call  :   6 cbi   :   0 cbr   :   0 
-clc   :   0 clh   :   0 cli   :   0 cln   :   0 clr   :   1 cls   :   0 
-clt   :   0 clv   :   0 clz   :   0 com   :   0 cp    :   0 cpc   :   0 
-cpi   :   0 cpse  :   0 dec   :   1 eor   :   0 fmul  :   0 fmuls :   0 
-fmulsu:   0 icall :   0 ijmp  :   0 in    :   0 inc   :   1 jmp   :   9 
-ld    :   0 ldd   :   0 ldi   :  16 lds   :   0 lpm   :  10 lsl   :   0 
-lsr   :   0 mov   :   0 movw  :   0 mul   :   0 muls  :   0 mulsu :   0 
-neg   :   0 nop   :   0 or    :   0 ori   :   0 out   :  11 pop   :   0 
-push  :   0 rcall :   0 ret   :   7 reti  :   0 rjmp  :   3 rol   :   0 
-ror   :   0 sbc   :   0 sbci  :   0 sbi   :   0 sbic  :   2 sbis  :   4 
-sbiw  :   1 sbr   :   0 sbrc  :   2 sbrs  :   0 sec   :   0 seh   :   0 
+brvs  :   0 bset  :   0 bst   :   2 call  :   7 cbi   :   0 cbr   :   0 
+clc   :   0 clh   :   0 cli   :   0 cln   :   0 clr   :   5 cls   :   0 
+clt   :   0 clv   :   0 clz   :   0 com   :   0 cp    :   1 cpc   :   0 
+cpi   :   3 cpse  :   0 dec   :   1 eor   :   0 fmul  :   0 fmuls :   0 
+fmulsu:   0 icall :   0 ijmp  :   0 in    :   7 inc   :   3 jmp   :  11 
+ld    :   0 ldd   :   0 ldi   :  26 lds   :   0 lpm   :  10 lsl   :   0 
+lsr   :   0 mov   :   2 movw  :   0 mul   :   0 muls  :   0 mulsu :   0 
+neg   :   0 nop   :   0 or    :   0 ori   :   0 out   :  19 pop   :   0 
+push  :   0 rcall :   0 ret   :   6 reti  :   0 rjmp  :   2 rol   :   0 
+ror   :   0 sbc   :   0 sbci  :   0 sbi   :   1 sbic  :   0 sbis  :   4 
+sbiw  :   1 sbr   :   0 sbrc  :   7 sbrs  :   0 sec   :   0 seh   :   0 
 sei   :   0 sen   :   0 ser   :   0 ses   :   0 set   :   0 sev   :   0 
-sez   :   0 sleep :   0 spm   :   0 st    :   0 std   :   0 sts   :   1 
+sez   :   0 sleep :   0 spm   :   0 st    :   0 std   :   0 sts   :   3 
 sub   :   0 subi  :   0 swap  :   0 tst   :   0 wdr   :   0 
-Instructions used: 16 out of 113 (14.2%)
+Instructions used: 22 out of 113 (19.5%)
 
 "ATmega328P" memory use summary [bytes]:
 Segment   Begin    End      Code   Data   Used    Size   Use%
 ---------------------------------------------------------------
-[.cseg] 0x000000 0x0000fe    176     16    192   32768   0.6%
+[.cseg] 0x000040 0x00016a    282     16    298   32768   0.9%
 [.dseg] 0x000100 0x000100      0      0      0    2048   0.0%
 [.eseg] 0x000000 0x000000      0      0      0    1024   0.0%
 

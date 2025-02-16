@@ -7,22 +7,21 @@
 
 .include "M328PDEF.inc"
 .cseg
-.org 0x0000
-	RJMP	RESET
 
+;Establecer dirección en program mem. LUEGO de los vectores de interrupción
 .org 0x0020
-
-;Establecer dirección en program mem.
 DISP7SEG:	
 	.DB	0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x67, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71
 
 ;Definición de registros importantes
-.def	BIN0		= R23
-.def	BIN0temp	= R22
+.def	BINDISP			= R23
+.def	BINDISPtemp		= R22
+.def	COUNTMILLIS		= R24
+.def	BINSECS			= R20
+.def	BINSECStemp		= R21
 
 SETUP:
 	;Establecemos el ZPointer en la dirección de DISP7SEG
-	RESET:
 	LDI		ZL, LOW(DISP7SEG << 1)
 	LDI		ZH, HIGH(DISP7SEG << 1)
 	
@@ -32,140 +31,201 @@ SETUP:
 	LDI		R16, HIGH(RAMEND)
 	OUT		SPH, R16
 
+	;Configurar Prescaler "Global" de 16 (DATASHEET P.45)	|	16MHz a 1MHz
+	LDI		R16, (1 << CLKPCE)
+	STS		CLKPR, R16
+	LDI		R16, (1 << CLKPS2)
+	STS		CLKPR, R16
+
 	;Deshabilitar serial (Importante; se utilizará PD para el display)
 	LDI		R16, 0x00
 	STS		UCSR0B, R16
 
 	;Configurar I/O PORTS (DDRx, PORTx)
-	;PORTD: BIN0 Out (PD0,1,2,3,4,5,6)	|	PORTD: 0XXXXXXX
+	;PORTB: BINSECS & STATE Out (PB0,1,2,3,4)	|	PORTB: 000XXXXX
+	LDI		R16, 0b00011111
+	OUT		DDRB, R16
+	LDI		R16, 0b00000000
+	OUT		PORTB, R16
+	;PORTD: BINDISP Out (PD0,1,2,3,4,5,6)		|	PORTD: 0XXXXXXX
 	LDI		R16, 0b11111111
 	OUT		DDRD, R16
 	LDI		R16, 0b00000000
 	OUT		PORTD, R16
-	;PORTC: BIN0 In (PC0,1)				|	PORTC: 00000011
-	LDI		R16, 0x00
+	;PORTC: BINDISP In (PC0,1)					|	PORTC: 00000011
+	LDI		R16, 0x00	
 	OUT		DDRC, R16
 	LDI		R16, 0b00000011
 	OUT		PORTC, R16
 
 	;Valores iniciales de registros importantes
-	LDI		BIN0, 0x00
-	LPM		BIN0temp, Z
-	OUT		PORTD, BIN0temp
+	LDI		COUNTMILLIS, 0x00
+	LDI		BINSECS, 0x00
+	LDI		BINDISP, 0x00
+	LPM		BINDISPtemp, Z
+	OUT		PORTD, BINDISPtemp
+
+	;Config. de TIMER0 en modo NORMAL
+	;Sin necesidad de cambiar TCCR0A
+	LDI		R16, (1 << CS02) | (1 << CS00)		;Prescaler 1024
+	OUT		TCCR0B, R16
 
 
 
-MAIN:
-	;Revisando si se quiere modificar BIN0
-	SBIS	PINC, PINC1			;Skip-next-line si el BIN0-UP-Button NO es presionado (Logic 1)
-	CALL	BIN0_UP_SEG			;Si BIN0-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-	SBIS	PINC, PINC0			;Skip-next-line si el BIN0-DWN-Button NO es presionado (Logic 1)
-	CALL	BIN0_DWN_SEG		;Si BIN0-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-	JMP		MAIN				;Ciclo infinito
+MAIN_LOOP:
+	;Si BINDISP = 0: No aumentar BINSECS y apagar LED
+	CPI		BINDISP, 0
+	IN		R16, SREG		
+	SBRC	R16, 1
+	JMP		BINSECS_AND_LED_OFF
+	;Cambio de valor de BINSECS
+	;Verificar si han transcurrido 100ms y aumentar COUNTMILLIS
+	;Si TCNT0 = 0: Han transcurrido 100ms
+	;Si COUNTMILLIS = 10: Ha transcurrido 1s
+	IN		R16, TCNT0
+	CPI		R16, 0
+	IN		R17, SREG
+	SBRC	R17, 1
+	CALL	TIM0_SET_AND_COUNTMILLIS_UP
+	;Si COUNTMILLIS = 10: Aumentar BINSECS y reiniciar COUNTMILLIS
+	CPI		COUNTMILLIS, 10
+	IN		R16, SREG		
+	SBRC	R16, 1
+	CALL	BINSECS_UP_AND_COUNTMILLIS_CLR
+	;Revisando si BINSECS = BINDISP
+	CP		BINSECS, BINDISP
+	IN		R16, SREG		
+	SBRC	R16, 1
+	CALL	STATE_CHANGE_AND_BINSECS_CLEAR
+	BUTTONS:
+	;Revisando si se quiere modificar BINDISP
+	SBIS	PINC, PINC1			;Skip-next-line si el BINDISP-UP-Button NO es presionado (Logic 1)
+	CALL	BINDISP_UP_SEG		;Si BINDISP-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+	SBIS	PINC, PINC0			;Skip-next-line si el BINDISP-DWN-Button NO es presionado (Logic 1)
+	CALL	BINDISP_DWN_SEG		;Si BINDISP-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+	JMP		MAIN_LOOP			;Ciclo infinito
 
 
 
-;Sub-rutinas de BIN0
-BIN0_UP_SEG:			;Rutina de seguridad de presionado de BIN0-UP-Button
-	CALL	DELAY		;Llamamos al Delay...
-	;Si al regresar, BIN0-UP-Button SIGUE presionado (Logic 0), realizamos el aumento en BIN0
-	;Si al regresar, BIN0-UP-Button NO SIGUE presionado (Logic 1), fue botonazo y regresamos a MAIN
-	SBIC	PINC, PINC1		
+;Sub-rutina de TIMER0
+BINSECS_AND_LED_OFF:
+	LDI		BINSECS, 0
+	LDI		BINSECStemp, 0
+	OUT		PORTB, BINSECStemp
+	JMP		BUTTONS
+TIM0_SET_AND_COUNTMILLIS_UP:
+	;Config. de TIMER0 en temporizador NORMAL (100ms)
+	;Compare value: TCNT0 = 256-98 = 158
+	LDI		R16, 158
+	OUT		TCNT0, R16
+	INC		COUNTMILLIS
 	RET
-	CALL	BIN0_UP
-	;Si luego de aumentar BIN0, BIN0-UP-Button SIGUE presionado, loopeamos hasta que se deje de presionar
-	;Si luego de aumentar BIN0, BIN0-UP-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN
-	BIN0_UP_LOOP:
-		SBIS	PINC, PINC1
-		RJMP	BIN0_UP_LOOP
+BINSECS_UP_AND_COUNTMILLIS_CLR:
+	;Si COUNTMILLIS = 10: Ha transcurrido 1s
+	;Incrementamos BINSECS
+	;"Ajustamos" BINSECS en BINSECStemp para subir a PORTB
+	CLR		COUNTMILLIS
+	INC		BINSECS
+	SBRC	BINSECS, 4
+	CLR		BINSECS
+	IN		R16, PORTB
+	BST		R16, 4
+	MOV		BINSECStemp, BINSECS
+	BLD		BINSECStemp, 4
+	OUT		PORTB, BINSECStemp
 	RET
-BIN0_UP:				;Rutina de aumento de BIN0
-	;Incrementamos BIN0
-	;Si hay carry (4to bit encendido), limpiamos BIN0 (BIN0_CLR)
-	;Si no hay carry, "arreglamos" BIN0temp con el valor de ZP para subir a PORTD (BIN0_DWN_7SEG)
+STATE_CHANGE_AND_BINSECS_CLEAR:
+	CLR		BINSECS
+	IN		R16, PORTB
+	BST		R16, 4
+	MOV		BINSECStemp, BINSECS
+	BLD		BINSECStemp, 4
+	OUT		PORTB, BINSECStemp
+	SBI		PINB, PINB4
+	RET
+BINSECS_CLEAR_AND_LED_ON:
+	CLR		BINSECS
+	LDI		BINSECStemp, 0b00010000
+	OUT		PORTB, BINSECStemp
+	RET
+
+
+
+;Sub-rutinas de BINDISP
+BINDISP_UP_SEG:			;Rutina de seguridad de presionado de BINDISP-UP-Button
+	;Incrementamos BINDISP
+	;Si hay carry (4to bit encendido), limpiamos BINDISP (BINDISP_CLR)
+	;Si no hay carry, "arreglamos" BINDISPtemp con el valor de ZP para subir a PORTD (BINDISP_DWN_7SEG)
 	;Recordar que PORTD: 0XXXXXXX 
-	INC		BIN0
-	SBRC	BIN0, 4
-	JMP		BIN0_CLR
-	JMP		BIN0_UP_7SEG
-	RETURN_UP:
+	INC		BINDISP
+	SBRC	BINDISP, 4
+	JMP		BINDISP_CLR
+	JMP		BINDISP_UP_7SEG
+	;Si luego de aumentar BINDISP, BINDISP-UP-Button SIGUE presionado, loopeamos hasta que se deje de presionar
+	;Si luego de aumentar BINDISP, BINDISP-UP-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN_LOOP
+	BINDISP_UP_LOOP:
+		CALL	BINSECS_CLEAR_AND_LED_ON
+		SBIS	PINC, PINC1
+		RJMP	BINDISP_UP_LOOP
 	RET
-
-	BIN0_CLR:
-	;Limpiamos BIN0
+	BINDISP_CLR:
+	;Limpiamos BINDISP
 	;Cargamos la primera localidad de DISP7SEG a ZPointer
-	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-	;Subimos BIN0temp a PD
-	CLR		BIN0
+	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+	;Subimos BINDISPtemp a PD
+	CLR		BINDISP
 	LDI		ZL, LOW(DISP7SEG << 1)
 	LDI		ZH, HIGH(DISP7SEG << 1)
-	LPM		BIN0temp, Z
-	OUT		PORTD, Bin0temp
-	JMP		RETURN_UP
-	BIN0_UP_7SEG:
+	LPM		BINDISPtemp, Z
+	OUT		PORTD, BINDISPtemp
+	JMP		BINDISP_UP_LOOP
+	BINDISP_UP_7SEG:
 	;Aumentamos el valor de ZPointer para que apunte al valor deseado de DISP7SEG
-	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-	;Subimos BIN0temp a PD
+	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+	;Subimos BINDISPtemp a PD
 	ADIW	Z, 1
-	LPM		BIN0temp, Z
-	OUT		PORTD, Bin0temp
-	JMP		RETURN_UP
+	LPM		BINDISPtemp, Z
+	OUT		PORTD, BINDISPtemp
+	JMP		BINDISP_UP_LOOP
 
-
-
-BIN0_DWN_SEG:			;Rutina de seguridad de presionado de BIN0-DWN-Button
-	CALL	DELAY		;Llamamos al Delay...
-	;Si al regresar, BIN0-DWN-Button SIGUE presionado (Logic 0), realizamos el decremento en BIN0
-	;Si al regresar, BIN0-DWN-Button NO SIGUE presionado (Logic 1), fue botonazo y regresamos a MAIN
-	SBIC	PINC, PINC0		
-	RET
-	CALL	BIN0_DWN
-	;Si luego de decrementar BIN0, BIN0-DWN-Button SIGUE presionado, loopeamos hasta que se deje de presionar
-	;Si luego de decrementar BIN0, BIN0-DWN-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN
-	BIN0_DWN_LOOP:
-		SBIS	PINC, PINC0
-		RJMP	BIN0_DWN_LOOP
-	RET
-BIN0_DWN:				;Rutina de decremento de BIN0
-	;Decrementamos BIN0
-	;Si hay carry (7mo bit encendido), corregimos BIN0 (BIN0_SET)
-	;Si no hay carry, "arreglamos" BIN0temp con el valor de ZP para subir a PORTD (BIN0_DWN_7SEG)
+BINDISP_DWN_SEG:			;Rutina de seguridad de presionado de BINDISP-DWN-Button
+	;Decrementamos BINDISP
+	;Si hay carry (7mo bit encendido), corregimos BINDISP (BINDISP_SET)
+	;Si no hay carry, "arreglamos" BINDISPtemp con el valor de ZP para subir a PORTD (BINDISP_DWN_7SEG)
 	;Recordar que PORTD: 0XXXXXXX 
-	DEC		BIN0
-	SBRC	BIN0, 7
-	JMP		BIN0_SET
-	JMP		BIN0_DWN_7SEG
-	RETURN_DWN:
+	DEC		BINDISP
+	SBRC	BINDISP, 7
+	JMP		BINDISP_SET
+	JMP		BINDISP_DWN_7SEG
+	;Si luego de decrementar BINDISP, BINDISP-DWN-Button SIGUE presionado, loopeamos hasta que se deje de presionar
+	;Si luego de decrementar BINDISP, BINDISP-DWN-Button NO SIGUE presionado (O ya no es presionado en el loop), regresamos a MAIN_LOOP
+	BINDISP_DWN_LOOP:
+		CALL	BINSECS_CLEAR_AND_LED_ON
+		SBIS	PINC, PINC0
+		RJMP	BINDISP_DWN_LOOP
 	RET
-
-	BIN0_SET:
-	;Corregimos BIN0
+	BINDISP_SET:
+	;Corregimos BINDISP
 	;Cargamos la última localidad de DISP7SEG a ZPointer
-	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-	;Subimos BIN0temp a PD
-	LDI		BIN0, 0x0F
+	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+	;Subimos BINDISPtemp a PD
+	LDI		BINDISP, 0x0F
 	LDI		ZL, LOW(DISP7SEG << 1)
 	LDI		ZH, HIGH(DISP7SEG << 1)
 	ADIW	Z, 15
-	LPM		BIN0temp, Z
-	OUT		PORTD, Bin0temp
-	JMP		RETURN_DWN
-
-	BIN0_DWN_7SEG:
+	LPM		BINDISPtemp, Z
+	OUT		PORTD, BINDISPtemp
+	JMP		BINDISP_DWN_LOOP
+	BINDISP_DWN_7SEG:
 	;Decrementamos el valor de ZPointer para que apunte al valor deseado de DISP7SEG
-	;Cargamos en BIN0temp el valor contenido en la dirección a la que apunta ZPointer
-	;Subimos BIN0temp a PD
+	;Cargamos en BINDISPtemp el valor contenido en la dirección a la que apunta ZPointer
+	;Subimos BINDISPtemp a PD
 	SBIW	Z, 1
-	LPM		BIN0temp, Z
-	OUT		PORTD, Bin0temp
-	JMP		RETURN_DWN
+	LPM		BINDISPtemp, Z
+	OUT		PORTD, BINDISPtemp
+	JMP		BINDISP_DWN_LOOP
 
 
-
-;Sub-rutinas de DELAY
-DELAY:					
-	LDI		R18, 0x00
-	RET
 
 
 
