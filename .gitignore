@@ -1,0 +1,37 @@
+# Carpetas de compilación y archivos generados
+build/
+Debug/
+Release/
+*.d
+*.elf
+*.hex
+*.lss
+*.map
+*.o
+*.bin
+*.eep
+*.srec
+*.sym
+*.tmp
+*.dep
+*.lst
+*.obj
+
+# Archivos específicos de Microchip Studio
+*.aps
+*.dmp
+*.sdf
+*.bak
+*.opendb
+*.tlog
+*.ncb
+*.plg
+*.idb
+*.user
+
+# Archivos de configuración local de Git y VSCode
+.vscode/
+*.log
+*.swp
+*.DS_Store
+Thumbs.db
