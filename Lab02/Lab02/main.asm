@@ -73,46 +73,52 @@ SETUP:
 
 
 MAIN_LOOP:
-	;Si BINDISP = 0: No aumentar BINSECS y apagar LED
+	;Si BINDISP = 0: NO aumentar BINSECS y apagar LED
 	CPI		BINDISP, 0
 	IN		R16, SREG		
 	SBRC	R16, 1
 	JMP		BINSECS_AND_LED_OFF
-	;Cambio de valor de BINSECS
+
 	;Verificar si han transcurrido 100ms y aumentar COUNTMILLIS
 	;Si TCNT0 = 0: Han transcurrido 100ms
-	;Si COUNTMILLIS = 10: Ha transcurrido 1s
 	IN		R16, TCNT0
 	CPI		R16, 0
 	IN		R17, SREG
 	SBRC	R17, 1
 	CALL	TIM0_SET_AND_COUNTMILLIS_UP
+
 	;Si COUNTMILLIS = 10: Aumentar BINSECS y reiniciar COUNTMILLIS
 	CPI		COUNTMILLIS, 10
 	IN		R16, SREG		
 	SBRC	R16, 1
 	CALL	BINSECS_UP_AND_COUNTMILLIS_CLR
+
 	;Revisando si BINSECS = BINDISP
 	CP		BINSECS, BINDISP
 	IN		R16, SREG		
 	SBRC	R16, 1
 	CALL	STATE_CHANGE_AND_BINSECS_CLEAR
-	BUTTONS:
+
 	;Revisando si se quiere modificar BINDISP
-	SBIS	PINC, PINC1			;Skip-next-line si el BINDISP-UP-Button NO es presionado (Logic 1)
-	CALL	BINDISP_UP_SEG		;Si BINDISP-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-	SBIS	PINC, PINC0			;Skip-next-line si el BINDISP-DWN-Button NO es presionado (Logic 1)
-	CALL	BINDISP_DWN_SEG		;Si BINDISP-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
-	JMP		MAIN_LOOP			;Ciclo infinito
+	BUTTONS:
+		SBIS	PINC, PINC1			;Skip-next-line si el BINDISP-UP-Button NO es presionado (Logic 1)
+		CALL	BINDISP_UP_SEG		;Si BINDISP-UP-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+		SBIS	PINC, PINC0			;Skip-next-line si el BINDISP-DWN-Button NO es presionado (Logic 1)
+		CALL	BINDISP_DWN_SEG		;Si BINDISP-DWN-Button SI es presionado (Logic 0), CALL su sub-rutina de seguridad
+		JMP		MAIN_LOOP			;Ciclo infinito
+
+	BINSECS_AND_LED_OFF:
+		;Si BINDISP = 0: NO aumentar BINSECS y apagar LED
+		LDI		BINSECS, 0
+		LDI		BINSECStemp, 0
+		OUT		PORTB, BINSECStemp
+		;Saltamos a revisar botones sin revisar si transcurrieron 100ms
+		JMP		BUTTONS
 
 
 
-;Sub-rutina de TIMER0
-BINSECS_AND_LED_OFF:
-	LDI		BINSECS, 0
-	LDI		BINSECStemp, 0
-	OUT		PORTB, BINSECStemp
-	JMP		BUTTONS
+;********Sub-rutinas NO de interrupción********
+;Sub-rutinas del temporizador y de sus contadores asociados
 TIM0_SET_AND_COUNTMILLIS_UP:
 	;Config. de TIMER0 en temporizador NORMAL (100ms)
 	;Compare value: TCNT0 = 256-98 = 158
@@ -135,6 +141,7 @@ BINSECS_UP_AND_COUNTMILLIS_CLR:
 	OUT		PORTB, BINSECStemp
 	RET
 STATE_CHANGE_AND_BINSECS_CLEAR:
+	;Si BINSECS = BINDISP, reiniciar BINSECS y cambiar estado de LED
 	CLR		BINSECS
 	IN		R16, PORTB
 	BST		R16, 4
@@ -144,6 +151,7 @@ STATE_CHANGE_AND_BINSECS_CLEAR:
 	SBI		PINB, PINB4
 	RET
 BINSECS_CLEAR_AND_LED_ON:
+	;Si se presionó un botón, reiniciamos BINSECS y encendemos el LED
 	CLR		BINSECS
 	LDI		BINSECStemp, 0b00010000
 	OUT		PORTB, BINSECStemp
